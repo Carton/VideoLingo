@@ -103,32 +103,54 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]) -> Tuple[List[st
     
     return src_lines, tr_lines, remerged_tr_lines
 
-def split_for_sub_main():
+def split_for_sub_main(need_translation=True):
     console.print("[bold green]🚀 Start splitting subtitles...[/bold green]")
     
-    df = pd.read_excel(INPUT_FILE)
-    src = df['Source'].tolist()
-    trans = df['Translation'].tolist()
-    
-    subtitle_set = load_key("subtitle")
-    MAX_SUB_LENGTH = subtitle_set["max_length"]
-    TARGET_SUB_MULTIPLIER = subtitle_set["target_multiplier"]
-    
-    for attempt in range(3):  # 使用固定的3次重试
-        console.print(Panel(f"🔄 Split attempt {attempt + 1}", expand=False))
-        split_src, split_trans, remerged = split_align_subs(src.copy(), trans)
+    if need_translation:
+        # 原有的翻译处理逻辑
+        df = pd.read_excel(INPUT_FILE)
+        src = df['Source'].tolist()
+        trans = df['Translation'].tolist()
         
-        # 检查是否所有字幕都符合长度要求
-        if all(len(src) <= MAX_SUB_LENGTH for src in split_src) and \
-           all(calc_len(tr) * TARGET_SUB_MULTIPLIER <= MAX_SUB_LENGTH for tr in split_trans):
-            break
+        subtitle_set = load_key("subtitle")
+        MAX_SUB_LENGTH = subtitle_set["max_length"]
+        TARGET_SUB_MULTIPLIER = subtitle_set["target_multiplier"]
         
-        # 更新源数据继续下一轮分割
-        src = split_src
-        trans = split_trans
+        for attempt in range(3):
+            console.print(Panel(f"🔄 Split attempt {attempt + 1}", expand=False))
+            split_src, split_trans, remerged = split_align_subs(src.copy(), trans)
+            
+            if all(len(src) <= MAX_SUB_LENGTH for src in split_src) and \
+               all(calc_len(tr) * TARGET_SUB_MULTIPLIER <= MAX_SUB_LENGTH for tr in split_trans):
+                break
+            
+            src = split_src
+            trans = split_trans
 
-    pd.DataFrame({'Source': split_src, 'Translation': split_trans}).to_excel(OUTPUT_SPLIT_FILE, index=False)
-    pd.DataFrame({'Source': src, 'Translation': remerged}).to_excel(OUTPUT_REMERGED_FILE, index=False)
+        pd.DataFrame({'Source': split_src, 'Translation': split_trans}).to_excel(OUTPUT_SPLIT_FILE, index=False)
+        pd.DataFrame({'Source': src, 'Translation': remerged}).to_excel(OUTPUT_REMERGED_FILE, index=False)
+    
+    else:
+        # 只处理原语言字幕的逻辑
+        with open("output/log/sentence_splitbymeaning.txt", "r", encoding="utf-8") as f:
+            src = f.read().strip().split('\n')
+        
+        subtitle_set = load_key("subtitle")
+        MAX_SUB_LENGTH = subtitle_set["max_length"]
+
+        # TODO: 这里需要多线程优化
+        split_src = []
+        for line in src:
+            if len(line) > MAX_SUB_LENGTH:
+                # 对长句进行分割
+                parts = split_sentence(line, num_parts=2).strip().split('\n')
+                split_src.extend(parts)
+            else:
+                split_src.append(line)
+        
+        # 只保存原语言字幕
+        pd.DataFrame({'Source': split_src}).to_excel(OUTPUT_SPLIT_FILE, index=False)
+        pd.DataFrame({'Source': src}).to_excel(OUTPUT_REMERGED_FILE, index=False)
 
 if __name__ == '__main__':
     split_for_sub_main()

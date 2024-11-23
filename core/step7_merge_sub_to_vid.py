@@ -38,7 +38,7 @@ def check_gpu_available():
     except:
         return False
 
-def merge_subtitles_to_video():
+def merge_subtitles_to_video(need_translation=True):
     RESOLUTION = load_key("resolution")
     TARGET_WIDTH, TARGET_HEIGHT = RESOLUTION.split('x')
     video_file = find_video_files()
@@ -58,22 +58,34 @@ def merge_subtitles_to_video():
         rprint("[bold green]Placeholder video has been generated.[/bold green]")
         return
 
-    if not os.path.exists(SRC_SRT) or not os.path.exists(TRANS_SRT):
-        print("Subtitle files not found in the 'output' directory.")
+    if not os.path.exists(SRC_SRT):
+        print("Source subtitle file not found in the 'output' directory.")
         exit(1)
+
+    # 构建基本的字幕过滤器命令
+    subtitle_filter = (
+        f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease,"
+        f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2,"
+        f"subtitles={SRC_SRT}:force_style='FontSize={SRC_FONT_SIZE},FontName={FONT_NAME}," 
+        f"PrimaryColour={SRC_FONT_COLOR},OutlineColour={SRC_OUTLINE_COLOR},OutlineWidth={SRC_OUTLINE_WIDTH},"
+        f"ShadowColour={SRC_SHADOW_COLOR},BorderStyle=1'"
+    )
+
+    # 如果需要翻译，添加翻译字幕
+    if need_translation:
+        if not os.path.exists(TRANS_SRT):
+            print("Translation subtitle file not found in the 'output' directory.")
+            exit(1)
+        
+        subtitle_filter += (
+            f",subtitles={TRANS_SRT}:force_style='FontSize={TRANS_FONT_SIZE},FontName={TRANS_FONT_NAME},"
+            f"PrimaryColour={TRANS_FONT_COLOR},OutlineColour={TRANS_OUTLINE_COLOR},OutlineWidth={TRANS_OUTLINE_WIDTH},"
+            f"BackColour={TRANS_BACK_COLOR},Alignment=2,MarginV=27,BorderStyle=4'"
+        )
 
     ffmpeg_cmd = [
         'ffmpeg', '-i', video_file,
-        '-vf', (
-            f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease,"
-            f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2,"
-            f"subtitles={SRC_SRT}:force_style='FontSize={SRC_FONT_SIZE},FontName={FONT_NAME}," 
-            f"PrimaryColour={SRC_FONT_COLOR},OutlineColour={SRC_OUTLINE_COLOR},OutlineWidth={SRC_OUTLINE_WIDTH},"
-            f"ShadowColour={SRC_SHADOW_COLOR},BorderStyle=1',"
-            f"subtitles={TRANS_SRT}:force_style='FontSize={TRANS_FONT_SIZE},FontName={TRANS_FONT_NAME},"
-            f"PrimaryColour={TRANS_FONT_COLOR},OutlineColour={TRANS_OUTLINE_COLOR},OutlineWidth={TRANS_OUTLINE_WIDTH},"
-            f"BackColour={TRANS_BACK_COLOR},Alignment=2,MarginV=27,BorderStyle=4'"
-        ).encode('utf-8'),
+        '-vf', subtitle_filter.encode('utf-8'),
     ]
 
     gpu_available = check_gpu_available()

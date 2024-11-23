@@ -15,14 +15,22 @@ TRANSLATION_RESULTS_REMERGED_FILE = 'output/log/translation_results_remerged.xls
 OUTPUT_DIR = 'output'
 AUDIO_OUTPUT_DIR = 'output/audio'
 
-SUBTITLE_OUTPUT_CONFIGS = [ 
+SRC_ONLY_SUBTITLE_OUTPUT_CONFIGS = [
+    ('src.srt', ['Source'])
+]
+
+TRANSLATION_SUBTITLE_OUTPUT_CONFIGS = [ 
     ('src.srt', ['Source']),
     ('trans.srt', ['Translation']),
     ('src_trans.srt', ['Source', 'Translation']),
     ('trans_src.srt', ['Translation', 'Source'])
 ]
 
-AUDIO_SUBTITLE_OUTPUT_CONFIGS = [
+SRC_ONLY_AUDIO_SUBTITLE_OUTPUT_CONFIGS = [
+    ('src_subs_for_audio.srt', ['Source'])
+]
+
+TRANSLATION_AUDIO_SUBTITLE_OUTPUT_CONFIGS = [
     ('src_subs_for_audio.srt', ['Source']),
     ('trans_subs_for_audio.srt', ['Translation'])
 ]
@@ -130,21 +138,37 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
     # Convert start and end timestamps to SRT format
     df_trans_time['timestamp'] = df_trans_time['timestamp'].apply(lambda x: convert_to_srt_format(x[0], x[1]))
 
-    # Polish subtitles: replace punctuation in Translation if for_display
-    if for_display:
+    # Polish subtitles: replace punctuation in Translation if for_display and column exists
+    if for_display and 'Translation' in df_trans_time.columns:
         df_trans_time['Translation'] = df_trans_time['Translation'].apply(lambda x: re.sub(r'[，。]', ' ', x).strip())
 
     # Output subtitles 📜
     def generate_subtitle_string(df, columns):
-        return ''.join([f"{i+1}\n{row['timestamp']}\n{row[columns[0]].strip()}\n{row[columns[1]].strip() if len(columns) > 1 else ''}\n\n" for i, row in df.iterrows()]).strip()
+        subtitle_lines = []
+        for i, row in df.iterrows():
+            subtitle_lines.append(f"{i+1}")
+            subtitle_lines.append(row['timestamp'])
+
+            # 添加每个指定列的内容，如果该列存在的话
+            for col in columns:
+                if col in row:
+                    subtitle_lines.append(row[col].strip())
+
+            subtitle_lines.append("")  # 空行分隔
+
+        return '\n'.join(subtitle_lines).strip()
 
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         for filename, columns in subtitle_output_configs:
-            subtitle_str = generate_subtitle_string(df_trans_time, columns)
-            with open(os.path.join(output_dir, filename), 'w', encoding='utf-8') as f:
-                f.write(subtitle_str)
-    
+            # 检查所需的列是否都存在
+            if all(col in df_trans_time.columns for col in columns):
+                subtitle_str = generate_subtitle_string(df_trans_time, columns)
+                with open(os.path.join(output_dir, filename), 'w', encoding='utf-8') as f:
+                    f.write(subtitle_str)
+            else:
+                console.print(f"[yellow]Warning: Skipping {filename} as some required columns are missing[/yellow]")
+
     return df_trans_time
 
 # ✨ Beautify the translation
@@ -154,21 +178,36 @@ def clean_translation(x):
     cleaned = str(x).strip('。').strip('，')
     return autocorrect.format(cleaned)
 
-def align_timestamp_main():
+def align_timestamp_main(need_translation=True):
     df_text = pd.read_excel(CLEANED_CHUNKS_FILE)
     df_text['text'] = df_text['text'].str.strip('"').str.strip()
-    df_translate = pd.read_excel(TRANSLATION_RESULTS_FOR_SUBTITLES_FILE)
-    df_translate['Translation'] = df_translate['Translation'].apply(clean_translation)
     
-    align_timestamp(df_text, df_translate, SUBTITLE_OUTPUT_CONFIGS, OUTPUT_DIR)
-    console.print(Panel("[bold green]🎉📝 Subtitles generation completed! Please check in the `output` folder 👀[/bold green]"))
+    if need_translation:
+        # 原有的翻译处理逻辑
+        df_translate = pd.read_excel(TRANSLATION_RESULTS_FOR_SUBTITLES_FILE)
+        df_translate['Translation'] = df_translate['Translation'].apply(clean_translation)
+        
+        align_timestamp(df_text, df_translate, TRANSLATION_SUBTITLE_OUTPUT_CONFIGS, OUTPUT_DIR)
+        console.print(Panel("[bold green]🎉📝 Subtitles generation completed! Please check in the `output` folder 👀[/bold green]"))
 
-    # for audio
-    df_translate_for_audio = pd.read_excel(TRANSLATION_RESULTS_REMERGED_FILE) # use remerged file to avoid unmatched lines when dubbing
-    df_translate_for_audio['Translation'] = df_translate_for_audio['Translation'].apply(clean_translation)
-    
-    align_timestamp(df_text, df_translate_for_audio, AUDIO_SUBTITLE_OUTPUT_CONFIGS, AUDIO_OUTPUT_DIR)
-    console.print(Panel("[bold green]🎉📝 Audio subtitles generation completed! Please check in the `output/audio` folder 👀[/bold green]"))
+        # for audio
+        df_translate_for_audio = pd.read_excel(TRANSLATION_RESULTS_REMERGED_FILE)
+        df_translate_for_audio['Translation'] = df_translate_for_audio['Translation'].apply(clean_translation)
+        
+        align_timestamp(df_text, df_translate_for_audio, TRANSLATION_AUDIO_SUBTITLE_OUTPUT_CONFIGS, AUDIO_OUTPUT_DIR)
+        console.print(Panel("[bold green]🎉📝 Audio subtitles generation completed! Please check in the `output/audio` folder 👀[/bold green]"))
+    else:
+        # 只处理原语言字幕
+        df_source = pd.read_excel(TRANSLATION_RESULTS_FOR_SUBTITLES_FILE)
+        
+        align_timestamp(df_text, df_source, SRC_ONLY_SUBTITLE_OUTPUT_CONFIGS, OUTPUT_DIR)
+        console.print(Panel("[bold green]🎉📝 Source subtitles generation completed! Please check in the `output` folder 👀[/bold green]"))
+
+        # for audio
+        df_source_for_audio = pd.read_excel(TRANSLATION_RESULTS_REMERGED_FILE)
+        
+        align_timestamp(df_text, df_source_for_audio, SRC_ONLY_AUDIO_SUBTITLE_OUTPUT_CONFIGS, AUDIO_OUTPUT_DIR)
+        console.print(Panel("[bold green]🎉📝 Source audio subtitles generation completed! Please check in the `output/audio` folder 👀[/bold green]"))
     
 
 if __name__ == '__main__':

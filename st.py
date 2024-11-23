@@ -48,16 +48,30 @@ def process_text():
     with st.spinner("Splitting long sentences..."):  
         step3_1_spacy_split.split_by_spacy()
         step3_2_splitbymeaning.split_sentences_by_meaning()
-    with st.spinner("Summarizing and translating..."):
-        step4_1_summarize.get_summary()
-        if load_key("pause_before_translate"):
-            input("⚠️ PAUSE_BEFORE_TRANSLATE. Go to `output/log/terminology.json` to edit terminology. Then press ENTER to continue...")
-        step4_2_translate_all.translate_all()
-    with st.spinner("Processing and aligning subtitles..."): 
-        step5_splitforsub.split_for_sub_main()
-        step6_generate_final_timeline.align_timestamp_main()
+    
+    # 检查是否需要翻译
+    source_lang = load_key("whisper.detected_language")
+    target_lang = load_key("target_language")
+    need_translation = bool(target_lang and target_lang.lower() != source_lang.lower())
+    
+    if need_translation:
+        with st.spinner("Summarizing and translating..."):
+            step4_1_summarize.get_summary()
+            if load_key("pause_before_translate"):
+                input("⚠️ PAUSE_BEFORE_TRANSLATE. Go to `output/log/terminology.json` to edit terminology. Then press ENTER to continue...")
+            step4_2_translate_all.translate_all()
+            
+        with st.spinner("Processing and aligning subtitles..."): 
+            step5_splitforsub.split_for_sub_main(need_translation=True)
+            step6_generate_final_timeline.align_timestamp_main(need_translation=True)
+    else:
+        # 跳过翻译，直接处理原语言字幕
+        with st.spinner("Processing subtitles..."): 
+            step5_splitforsub.split_for_sub_main(need_translation=False)
+            step6_generate_final_timeline.align_timestamp_main(need_translation=False)
+    
     with st.spinner("Merging subtitles to video..."):
-        step7_merge_sub_to_vid.merge_subtitles_to_video()
+        step7_merge_sub_to_vid.merge_subtitles_to_video(need_translation=need_translation)
     
     st.success("Subtitle processing complete! 🎉")
     st.balloons()
